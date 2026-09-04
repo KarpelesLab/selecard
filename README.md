@@ -51,26 +51,26 @@ ID 01234567  OPEN   checksum OK
 ID 01234567  STOP   checksum OK
 ```
 
-**Synthesise a command** (writes a `cs8` clip; add `--tx` to transmit it):
+**Operate the shutter** — `--id` is the card you act as (the 8-digit number printed on
+it; leading zeros optional). Writes a `cs8` clip; add `--tx` to transmit it:
 
 ```console
-$ python3 selecard.py send open --id 1234567
-synthesised OPEN for ID 01234567 -> selecard_tx.cs8 (557 ms, checksum 100110010111101)
+$ python3 selecard.py --id 1234567 open
+synthesised OPEN for ID 01234567 -> selecard_tx.cs8 (518 ms, checksum 100110010111101)
 
-$ python3 selecard.py send open --id 1234567 --tx --tx-gain 40
+$ python3 selecard.py --id 1234567 open --tx --tx-gain 40
 ```
 
-`--id` is the plain 8-digit number printed on the card (leading zeros optional).
+`open`, `stop`, and `close` all work the same way.
 
-**Register (enrol) a card ID onto a shutter** — builds the over-the-air enrolment
-COMMIT packet. It needs the ID of a card **already registered** to that shutter (the
-authoriser), plus the new ID to add:
+**Register (enrol) a card ID onto a shutter** — `--id` is a card **already registered**
+to that shutter (the authoriser); the positional argument is the new ID to add:
 
 ```console
-$ python3 selecard.py reg --own 1234567 --id 7654321
-synthesised REGISTER: enrol ID 07654321 using own ID 01234567 -> selecard_reg.cs8 (839 ms)
+$ python3 selecard.py --id 1234567 reg 7654321
+synthesised REGISTER: enrol ID 07654321 using card 01234567 -> selecard_reg.cs8 (839 ms)
 
-$ python3 selecard.py reg --own 1234567 --id 7654321 --tx --tx-gain 40
+$ python3 selecard.py --id 1234567 reg 7654321 --tx --tx-gain 40
 ```
 
 This exists because the enrolment check is, again, just an additive checksum of the two

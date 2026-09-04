@@ -5,10 +5,16 @@ selecard.py — Bunka Shutter SeleCard III (STX0031) 426 MHz remote: decode & tr
 Reverse-engineered, manufacturer-independent tool for the SeleCard III wireless
 garage-shutter remote. It can:
 
-  * decode  — demodulate a HackRF `cs8` IQ recording and print the command frames
-              (shutter ID, button, checksum-OK) it contains;
-  * send    — synthesise an OPEN / STOP / CLOSE command frame for a given shutter ID
-              and (optionally) transmit it with a HackRF.
+  * decode              — demodulate a HackRF `cs8` recording and print the command
+                          frames (shutter ID, button, checksum-OK) it contains;
+  * --id N open/stop/close — synthesise a command frame for card N and (with --tx) send it;
+  * --id N reg M        — synthesise the enrolment packet that registers new card M onto
+                          the shutter, authorised by already-registered card N.
+
+`--id` is global and always names the card you operate as. Examples:
+    python3 selecard.py --id 1234567 open --tx
+    python3 selecard.py --id 1234567 reg 7654321 --tx
+    python3 selecard.py decode recording.cs8
 
 Radio summary (see PROTOCOL.md for the full analysis):
   * carrier ~426.0737 MHz, 2-FSK, ~4 kHz shift, ~602 bit/s Manchester
@@ -280,33 +286,35 @@ def transmit(cs8, tx_gain=30, freq=CARRIER, path="/tmp/selecard_tx.cs8"):
 
 # ---- CLI -------------------------------------------------------------------
 def main():
-    ap = argparse.ArgumentParser(description="SeleCard III decode / transmit")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    # --id is global and always means "the card you operate as": the shutter card for
+    # open/stop/close, or the already-registered authoriser card for reg.
+    # options that apply to the transmit-producing operations (usable after the op)
+    txopts = argparse.ArgumentParser(add_help=False)
+    txopts.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
+    txopts.add_argument("--tx-gain", type=int, default=30, help="hackrf TX VGA gain, 0-47")
+    txopts.add_argument("--out", metavar="FILE", help="output cs8 path")
 
-    d = sub.add_parser("decode", help="decode command frames from a cs8 recording")
-    d.add_argument("capture")
-    d.add_argument("--carrier", type=float, help="carrier Hz (with --center; else auto-detect)")
-    d.add_argument("--center", type=float, help="recording center Hz (with --carrier)")
+    ap = argparse.ArgumentParser(description="SeleCard III: decode / operate / enrol")
+    ap.add_argument("--id", type=int, metavar="CARD_ID",
+                    help="the card ID you operate as (shutter card for open/stop/close, "
+                         "authoriser card for reg); the 8-digit number printed on the card")
+    sub = ap.add_subparsers(dest="op", required=True, metavar="OPERATION")
 
-    s = sub.add_parser("send", help="synthesise (and optionally transmit) a command")
-    s.add_argument("command", choices=["open", "stop", "close"])
-    s.add_argument("--id", type=int, required=True,
-                   help="8-digit shutter ID printed on the card, as a decimal integer")
-    s.add_argument("--out", default="selecard_tx.cs8", help="output cs8 path")
-    s.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
-    s.add_argument("--tx-gain", type=int, default=30)
+    for c in ("open", "stop", "close"):
+        sub.add_parser(c, parents=[txopts], help=f"send the {c.upper()} command (needs --id)")
 
-    r = sub.add_parser("reg", help="synthesise (and optionally transmit) an enrolment "
-                                   "(register a new card ID onto the shutter)")
-    r.add_argument("--own", type=int, required=True,
-                   help="ID of a card already registered to the shutter (the authoriser)")
-    r.add_argument("--id", type=int, required=True, help="new card ID to enrol")
-    r.add_argument("--out", default="selecard_reg.cs8", help="output cs8 path")
-    r.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
-    r.add_argument("--tx-gain", type=int, default=30)
+    rp = sub.add_parser("reg", parents=[txopts],
+                        help="enrol a new card ID onto the shutter (needs --id)")
+    rp.add_argument("new_id", type=int, help="the new card ID to enrol")
+
+    dp = sub.add_parser("decode", help="decode command frames from a cs8 recording")
+    dp.add_argument("capture")
+    dp.add_argument("--carrier", type=float, help="carrier Hz (with --center; else auto)")
+    dp.add_argument("--center", type=float, help="recording center Hz (with --carrier)")
 
     args = ap.parse_args()
-    if args.cmd == "decode":
+
+    if args.op == "decode":
         offset = (args.carrier - args.center
                   if args.carrier is not None and args.center is not None else None)
         found = False
@@ -315,21 +323,26 @@ def main():
             print(f"ID {idv:08d}  {cmd.upper():5}  checksum {'OK' if ok else 'BAD'}")
         if not found:
             print("no command frames decoded", file=sys.stderr)
-    elif args.cmd == "send":
-        cs8 = synth(args.id, args.command)
-        cs8.tofile(args.out)
-        chk = command_checksum(args.id, args.command)
-        print(f"synthesised {args.command.upper()} for ID {args.id:08d} -> {args.out} "
-              f"({len(cs8) // 2 / FS * 1000:.0f} ms, checksum {chk})")
-        if args.tx:
-            transmit(cs8, args.tx_gain, freq=CARRIER)
-    else:  # reg
-        cs8 = reg_synth(args.own, args.id)
-        cs8.tofile(args.out)
-        print(f"synthesised REGISTER: enrol ID {args.id:08d} using own ID {args.own:08d} "
-              f"-> {args.out} ({len(cs8) // 2 / FS * 1000:.0f} ms)")
-        if args.tx:
-            transmit(cs8, args.tx_gain, freq=CARRIER)
+        return
+
+    if args.id is None:
+        ap.error(f"--id is required for '{args.op}'")
+
+    if args.op == "reg":
+        cs8 = reg_synth(args.id, args.new_id)
+        out = args.out or "selecard_reg.cs8"
+        cs8.tofile(out)
+        print(f"synthesised REGISTER: enrol ID {args.new_id:08d} using card {args.id:08d} "
+              f"-> {out} ({len(cs8) // 2 / FS * 1000:.0f} ms)")
+    else:  # open / stop / close
+        cs8 = synth(args.id, args.op)
+        out = args.out or "selecard_tx.cs8"
+        cs8.tofile(out)
+        print(f"synthesised {args.op.upper()} for ID {args.id:08d} -> {out} "
+              f"({len(cs8) // 2 / FS * 1000:.0f} ms, checksum {command_checksum(args.id, args.op)})")
+
+    if args.tx:
+        transmit(cs8, args.tx_gain, freq=CARRIER)
 
 
 if __name__ == "__main__":
