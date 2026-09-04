@@ -33,11 +33,16 @@ FS = 2_000_000            # cs8 sample rate the examples use
 CENTER = 425_900_000      # HackRF center used when *capturing* (dodges the DC spike)
 CARRIER = 426_073_700     # SeleCard III carrier
 HALFBIT_US = 830.0        # Manchester half-bit period
-PREAMBLE_HALFBITS = 64    # leading alternating half-bits
-REPEATS = 3               # frame repeats per transmission
 # FSK tone offsets (Hz) relative to CARRIER, measured from a real transmission
 TONE_SPACE = 100.0        # logical 0 half-bit
 TONE_MARK = 4200.0        # logical 1 half-bit
+
+# Framing measured from a real transmission, as half-bit levels (generic — carries no
+# ID; only the data slots do). A press = preamble, then 3 data frames, each preceded by
+# a delimiter (a ~17-half-bit mark run) + preamble; then a short tail.
+_PREAMBLE0 = "010101010101010101010101010101010101010101010101010101010101010100"
+_INTERFRAME = "0111111111111111110101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010100"
+_TAIL = "011111110"
 
 # ---- command field + checksum ---------------------------------------------
 # 8-bit one-hot command at data bits [27:35]; also feeds the checksum as a one-hot add.
@@ -195,12 +200,17 @@ def _frame_bits(idv, command):
             + command_checksum(idv, command))
 
 
+def command_halfbits(idv, command):
+    """Full half-bit sequence of a command transmission (framing + 3 data frames),
+    reproducing a real press bit-for-bit. Manchester: data bit 1 -> '10', 0 -> '01'."""
+    data = _frame_bits(idv, command)
+    manch = "".join("10" if b == "1" else "01" for b in data)  # 100 half-bits
+    return (_PREAMBLE0 + manch + _INTERFRAME + manch + _INTERFRAME + manch + _TAIL)
+
+
 def synth(idv, command, amp=90.0):
     """Synthesise the FSK/Manchester waveform for a command; return a cs8 int8 array."""
-    data = _frame_bits(idv, command)
-    manch = "".join("10" if b == "1" else "01" for b in data)  # bit1->10, bit0->01
-    preamble = "10" * (PREAMBLE_HALFBITS // 2)
-    halfbits = (preamble + manch) * REPEATS
+    halfbits = command_halfbits(idv, command)
     tsamp = int(round(HALFBIT_US * 1e-6 * FS))
     sig = np.empty(len(halfbits) * tsamp, complex)
     ph, k = 0.0, 0
