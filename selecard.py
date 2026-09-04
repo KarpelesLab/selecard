@@ -44,6 +44,11 @@ _PREAMBLE0 = "010101010101010101010101010101010101010101010101010101010101010100
 _INTERFRAME = "0111111111111111110101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010100"
 _TAIL = "011111110"
 
+# Registration COMMIT-packet framing (longer frame; 3x 192-half-bit payloads).
+_REG_PREAMBLE0 = "0001111111110101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010100010101"
+_REG_INTERFRAME = "11111111111111110101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010100010101"
+_REG_TAIL = "1111110"
+
 # ---- command field + checksum ---------------------------------------------
 # 8-bit one-hot command at data bits [27:35]; also feeds the checksum as a one-hot add.
 COMMANDS = {"register": 0x100, "close": 0x200, "stop": 0x400, "open": 0x800}
@@ -60,6 +65,24 @@ def command_checksum(idv, command):
     """15-bit command-frame checksum [35:50], returned LSB-first as a bit string."""
     val = (fold(idv) + COMMANDS[command]) & 0x7FFF
     return format(val, "015b")[::-1]
+
+
+# Registration (enrolment) commit-packet checksum: [own][check(own)][new][check(new)].
+# Same fold, different seeds. See PROTOCOL.md.
+REG_SEED_OWN = 0x800080   # checksum of the already-registered card's own ID
+REG_SEED_NEW = 0xFF00FF   # checksum of the ID being enrolled
+
+
+def reg_checksum(idv, seed):
+    """24-bit registration checksum field (LSB-first bit string)."""
+    return format((seed + (fold(idv) << 8)) & 0xFFFFFF, "024b")[::-1]
+
+
+def reg_payload(own_id, new_id):
+    """96-bit COMMIT payload [own-ID][check(own)][new-ID][check(new)], as transmitted."""
+    lsb = lambda v: format(v, "024b")[::-1]
+    return (lsb(own_id) + reg_checksum(own_id, REG_SEED_OWN)
+            + lsb(new_id) + reg_checksum(new_id, REG_SEED_NEW))
 
 
 # ---- low-level DSP ---------------------------------------------------------
@@ -208,9 +231,8 @@ def command_halfbits(idv, command):
     return (_PREAMBLE0 + manch + _INTERFRAME + manch + _INTERFRAME + manch + _TAIL)
 
 
-def synth(idv, command, amp=90.0):
-    """Synthesise the FSK/Manchester waveform for a command; return a cs8 int8 array."""
-    halfbits = command_halfbits(idv, command)
+def _modulate(halfbits, amp=90.0):
+    """FSK-modulate a half-bit string (mark/space tones) into a cs8 int8 array."""
     tsamp = int(round(HALFBIT_US * 1e-6 * FS))
     sig = np.empty(len(halfbits) * tsamp, complex)
     ph, k = 0.0, 0
@@ -226,6 +248,25 @@ def synth(idv, command, amp=90.0):
     cs8[0::2] = np.clip(np.round(out.real), -127, 127).astype(np.int8)
     cs8[1::2] = np.clip(np.round(out.imag), -127, 127).astype(np.int8)
     return cs8
+
+
+def synth(idv, command, amp=90.0):
+    """Synthesise the FSK/Manchester waveform for a command; return a cs8 int8 array."""
+    return _modulate(command_halfbits(idv, command), amp)
+
+
+def reg_halfbits(own_id, new_id):
+    """Full half-bit sequence of a registration COMMIT (framing + 3 payload frames),
+    reproducing a real enrolment transmission bit-for-bit."""
+    payload = reg_payload(own_id, new_id)
+    manch = "".join("10" if b == "1" else "01" for b in payload)  # 192 half-bits
+    return (_REG_PREAMBLE0 + manch + _REG_INTERFRAME + manch
+            + _REG_INTERFRAME + manch + _REG_TAIL)
+
+
+def reg_synth(own_id, new_id, amp=90.0):
+    """Synthesise the registration COMMIT waveform that enrols new_id using own_id."""
+    return _modulate(reg_halfbits(own_id, new_id), amp)
 
 
 def transmit(cs8, tx_gain=30, freq=CARRIER, path="/tmp/selecard_tx.cs8"):
@@ -255,6 +296,15 @@ def main():
     s.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
     s.add_argument("--tx-gain", type=int, default=30)
 
+    r = sub.add_parser("reg", help="synthesise (and optionally transmit) an enrolment "
+                                   "(register a new card ID onto the shutter)")
+    r.add_argument("--own", type=int, required=True,
+                   help="ID of a card already registered to the shutter (the authoriser)")
+    r.add_argument("--id", type=int, required=True, help="new card ID to enrol")
+    r.add_argument("--out", default="selecard_reg.cs8", help="output cs8 path")
+    r.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
+    r.add_argument("--tx-gain", type=int, default=30)
+
     args = ap.parse_args()
     if args.cmd == "decode":
         offset = (args.carrier - args.center
@@ -265,12 +315,19 @@ def main():
             print(f"ID {idv:08d}  {cmd.upper():5}  checksum {'OK' if ok else 'BAD'}")
         if not found:
             print("no command frames decoded", file=sys.stderr)
-    else:
+    elif args.cmd == "send":
         cs8 = synth(args.id, args.command)
         cs8.tofile(args.out)
         chk = command_checksum(args.id, args.command)
         print(f"synthesised {args.command.upper()} for ID {args.id:08d} -> {args.out} "
               f"({len(cs8) // 2 / FS * 1000:.0f} ms, checksum {chk})")
+        if args.tx:
+            transmit(cs8, args.tx_gain, freq=CARRIER)
+    else:  # reg
+        cs8 = reg_synth(args.own, args.id)
+        cs8.tofile(args.out)
+        print(f"synthesised REGISTER: enrol ID {args.id:08d} using own ID {args.own:08d} "
+              f"-> {args.out} ({len(cs8) // 2 / FS * 1000:.0f} ms)")
         if args.tx:
             transmit(cs8, args.tx_gain, freq=CARRIER)
 

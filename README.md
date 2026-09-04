@@ -62,6 +62,22 @@ $ python3 selecard.py send open --id 1234567 --tx --tx-gain 40
 
 `--id` is the plain 8-digit number printed on the card (leading zeros optional).
 
+**Register (enrol) a card ID onto a shutter** — builds the over-the-air enrolment
+COMMIT packet. It needs the ID of a card **already registered** to that shutter (the
+authoriser), plus the new ID to add:
+
+```console
+$ python3 selecard.py reg --own 1234567 --id 7654321
+synthesised REGISTER: enrol ID 07654321 using own ID 01234567 -> selecard_reg.cs8 (839 ms)
+
+$ python3 selecard.py reg --own 1234567 --id 7654321 --tx --tx-gain 40
+```
+
+This exists because the enrolment check is, again, just an additive checksum of the two
+IDs — there is no cryptographic protection. It is the clearest demonstration of the
+system's weakness, and is provided for that reason. **Only enrol cards onto receivers
+you own or are authorised to modify.**
+
 ## Status
 
 * **SeleCard III (STX0031, 426 MHz FSK)** — fully decoded; commands validated by
