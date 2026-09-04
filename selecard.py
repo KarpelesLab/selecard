@@ -286,39 +286,36 @@ def transmit(cs8, tx_gain=30, freq=CARRIER, path="/tmp/selecard_tx.cs8"):
 
 # ---- CLI -------------------------------------------------------------------
 def main():
-    # --id is global and always means "the card you operate as": the shutter card for
-    # open/stop/close, or the already-registered authoriser card for reg.
-    # options that apply to the transmit-producing operations (usable after the op)
-    txopts = argparse.ArgumentParser(add_help=False)
-    txopts.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
-    txopts.add_argument("--tx-gain", type=int, default=30, help="hackrf TX VGA gain, 0-47")
-    txopts.add_argument("--out", metavar="FILE", help="output cs8 path")
-
-    ap = argparse.ArgumentParser(description="SeleCard III: decode / operate / enrol")
+    # Flat parser: the operation is the only required positional; every `--option` is
+    # global and order-independent (that's what makes them options, not positionals).
+    ap = argparse.ArgumentParser(
+        description="SeleCard III: decode / operate / enrol",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="examples:\n"
+               "  selecard.py --id 1234567 open --tx\n"
+               "  selecard.py --id 1234567 reg 7654321 --tx\n"
+               "  selecard.py decode recording.cs8")
+    ap.add_argument("op", choices=["open", "stop", "close", "reg", "decode"],
+                    help="operation to perform")
+    ap.add_argument("arg", nargs="?",
+                    help="reg: the new card ID to enrol; decode: the cs8 recording path")
     ap.add_argument("--id", type=int, metavar="CARD_ID",
-                    help="the card ID you operate as (shutter card for open/stop/close, "
-                         "authoriser card for reg); the 8-digit number printed on the card")
-    sub = ap.add_subparsers(dest="op", required=True, metavar="OPERATION")
-
-    for c in ("open", "stop", "close"):
-        sub.add_parser(c, parents=[txopts], help=f"send the {c.upper()} command (needs --id)")
-
-    rp = sub.add_parser("reg", parents=[txopts],
-                        help="enrol a new card ID onto the shutter (needs --id)")
-    rp.add_argument("new_id", type=int, help="the new card ID to enrol")
-
-    dp = sub.add_parser("decode", help="decode command frames from a cs8 recording")
-    dp.add_argument("capture")
-    dp.add_argument("--carrier", type=float, help="carrier Hz (with --center; else auto)")
-    dp.add_argument("--center", type=float, help="recording center Hz (with --carrier)")
-
+                    help="the card you operate as (shutter card for open/stop/close; "
+                         "an already-registered authoriser card for reg)")
+    ap.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
+    ap.add_argument("--tx-gain", type=int, default=30, help="hackrf TX VGA gain, 0-47")
+    ap.add_argument("--out", metavar="FILE", help="output cs8 path")
+    ap.add_argument("--carrier", type=float, help="decode: carrier Hz (with --center)")
+    ap.add_argument("--center", type=float, help="decode: recording center Hz (with --carrier)")
     args = ap.parse_args()
 
     if args.op == "decode":
+        if not args.arg:
+            ap.error("decode needs a recording path, e.g. 'decode recording.cs8'")
         offset = (args.carrier - args.center
                   if args.carrier is not None and args.center is not None else None)
         found = False
-        for idv, cmd, ok in decode(args.capture, offset):
+        for idv, cmd, ok in decode(args.arg, offset):
             found = True
             print(f"ID {idv:08d}  {cmd.upper():5}  checksum {'OK' if ok else 'BAD'}")
         if not found:
@@ -329,10 +326,16 @@ def main():
         ap.error(f"--id is required for '{args.op}'")
 
     if args.op == "reg":
-        cs8 = reg_synth(args.id, args.new_id)
+        if not args.arg:
+            ap.error("reg needs the new card ID, e.g. '--id 1234567 reg 7654321'")
+        try:
+            new_id = int(args.arg)
+        except ValueError:
+            ap.error(f"the new card ID must be an integer, got {args.arg!r}")
+        cs8 = reg_synth(args.id, new_id)
         out = args.out or "selecard_reg.cs8"
         cs8.tofile(out)
-        print(f"synthesised REGISTER: enrol ID {args.new_id:08d} using card {args.id:08d} "
+        print(f"synthesised REGISTER: enrol ID {new_id:08d} using card {args.id:08d} "
               f"-> {out} ({len(cs8) // 2 / FS * 1000:.0f} ms)")
     else:  # open / stop / close
         cs8 = synth(args.id, args.op)
