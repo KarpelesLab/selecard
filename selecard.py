@@ -59,7 +59,8 @@ def command_checksum(idv, command):
 
 # ---- low-level DSP ---------------------------------------------------------
 def channelize(x, f_shift, dec=20):
-    """Shift `f_shift` Hz to DC, band-limit, decimate — FFT-domain, chunked for big files."""
+    """Shift `f_shift` Hz to DC, band-limit, decimate — FFT-domain, chunked for big files.
+    Modular bin indexing so it works for any shift, including near DC."""
     parts, chunk = [], 20_000_000
     for s in range(0, len(x), chunk):
         seg = x[s:s + chunk]
@@ -71,15 +72,27 @@ def channelize(x, f_shift, dec=20):
         X = np.fft.fft(seg)
         c = int(round(f_shift / FS * n)) % n
         Y = np.empty(m, complex)
-        Y[:h] = X[c:c + h]
-        Y[m - h:] = X[(c - h) % n:c]
+        Y[:h] = X[np.arange(c, c + h) % n]        # band above carrier -> +freqs
+        Y[m - h:] = X[np.arange(c - h, c) % n]    # band below carrier -> -freqs
         parts.append(np.fft.ifft(Y) * (m / n))
     return np.concatenate(parts), FS / dec
 
 
+def find_offset(x, exclude_dc=2000.0):
+    """Locate the signal's frequency offset (Hz) — the strongest narrowband tone,
+    ignoring LO/DC leakage. Lets `decode` work regardless of the recording's center."""
+    seg = x[:min(len(x), 8_000_000)]
+    S = np.abs(np.fft.fftshift(np.fft.fft(seg * np.hanning(len(seg)))))
+    freqs = np.fft.fftshift(np.fft.fftfreq(len(seg), 1 / FS))
+    S[np.abs(freqs) < exclude_dc] = 0
+    return float(freqs[np.argmax(S)])
+
+
 def _bursts(xd, fsd):
     mag = np.abs(xd)
-    thr = max(np.percentile(mag, 20) * 4, mag.max() * 0.2)
+    # noise-relative for real captures, but capped below the peak so an all-signal
+    # (synthesised) file still detects — otherwise the percentile *is* the signal.
+    thr = min(np.percentile(mag, 20) * 4, mag.max() * 0.4)
     on = mag > thr
     runs, i = [], 0
     while i < len(on):
@@ -139,11 +152,15 @@ def _manch(s, off):
 
 
 # ---- decode ----------------------------------------------------------------
-def decode(path, carrier=CARRIER, center=CENTER):
-    """Yield (id, command, checksum_ok) for each command frame in a cs8 recording."""
+def decode(path, offset=None):
+    """Yield (id, command, checksum_ok) for each command frame in a cs8 recording.
+    `offset` is the signal's Hz offset from the recording center; auto-detected if None
+    (so this works on real captures *and* on the output of `send`)."""
     raw = np.fromfile(path, dtype=np.int8).astype(np.float32)
     x = raw[0::2] + 1j * raw[1::2]
-    xd, fsd = channelize(x, carrier - center)
+    if offset is None:
+        offset = find_offset(x)
+    xd, fsd = channelize(x, offset)
     inv = {v: k for k, v in COMMAND_ONEHOT.items()}
     seen = set()
     for a, b in _bursts(xd, fsd):
@@ -217,8 +234,8 @@ def main():
 
     d = sub.add_parser("decode", help="decode command frames from a cs8 recording")
     d.add_argument("capture")
-    d.add_argument("--carrier", type=float, default=CARRIER)
-    d.add_argument("--center", type=float, default=CENTER)
+    d.add_argument("--carrier", type=float, help="carrier Hz (with --center; else auto-detect)")
+    d.add_argument("--center", type=float, help="recording center Hz (with --carrier)")
 
     s = sub.add_parser("send", help="synthesise (and optionally transmit) a command")
     s.add_argument("command", choices=["open", "stop", "close"])
@@ -230,8 +247,10 @@ def main():
 
     args = ap.parse_args()
     if args.cmd == "decode":
+        offset = (args.carrier - args.center
+                  if args.carrier is not None and args.center is not None else None)
         found = False
-        for idv, cmd, ok in decode(args.capture, args.carrier, args.center):
+        for idv, cmd, ok in decode(args.capture, offset):
             found = True
             print(f"ID {idv:08d}  {cmd.upper():5}  checksum {'OK' if ok else 'BAD'}")
         if not found:
