@@ -39,6 +39,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
 
 import numpy as np
 
@@ -216,12 +217,21 @@ def build_cs8(card_id, command, counters, gap_ms=8.8, amp=110.0):
     return cs8
 
 
-def transmit(cs8, tx_gain=40, path="/tmp/selecard2_tx.cs8"):
-    cs8.tofile(path)
-    cmd = ["hackrf_transfer", "-t", path, "-f", str(int(CENTER)),
-           "-s", str(int(FS)), "-a", "1", "-x", str(int(tx_gain))]
-    print("+ " + " ".join(cmd))
-    subprocess.run(cmd, check=True)
+def transmit(cs8, tx_gain=40):
+    """Write the cs8 to a unique /tmp file, transmit it, then delete it."""
+    fd, path = tempfile.mkstemp(prefix="selecard2_tx_", suffix=".cs8", dir="/tmp")
+    os.close(fd)
+    try:
+        cs8.tofile(path)
+        cmd = ["hackrf_transfer", "-t", path, "-f", str(int(CENTER)),
+               "-s", str(int(FS)), "-a", "1", "-x", str(int(tx_gain))]
+        print("+ " + " ".join(cmd))
+        subprocess.run(cmd, check=True)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 # ---- forward-counter state (per ID) ---------------------------------------
@@ -308,7 +318,9 @@ def main():
     print(f"{args.op.upper()} id {args.id:08d}: counters {start}..{counters[-1]} "
           f"({args.repeats} frame(s)) via {args.radio}")
     if args.tx:
-        _tx(args.id, args.op, counters, args)
+        if args.out:                       # keep a copy only when explicitly requested
+            build_cs8(args.id, args.op, counters).tofile(args.out)
+        _tx(args.id, args.op, counters, args)   # hackrf: unique /tmp file, erased
         set_counter(args.id, (counters[-1] + 1) & 0xFFF)   # advance only after a real TX
         print("transmitted.")
     else:

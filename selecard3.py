@@ -29,8 +29,10 @@ on equipment you own or are authorised to test. MIT-licensed; see LICENSE.
 Requires: numpy, and the `hackrf` CLI tools for capture/transmit.
 """
 import argparse
+import os
 import subprocess
 import sys
+import tempfile
 
 import numpy as np
 
@@ -283,13 +285,21 @@ def reg_synth(own_id, new_id, amp=90.0):
     return _modulate(reg_halfbits(own_id, new_id), amp)
 
 
-def transmit(cs8, tx_gain=30, freq=CARRIER - TX_OFFSET, path="/tmp/selecard_tx.cs8"):
-    """Transmit a synthesised cs8 clip with hackrf_transfer."""
-    cs8.tofile(path)
-    cmd = ["hackrf_transfer", "-t", path, "-f", str(int(freq)),
-           "-s", str(int(FS)), "-a", "1", "-x", str(int(tx_gain))]
-    print("+ " + " ".join(cmd))
-    subprocess.run(cmd, check=True)
+def transmit(cs8, tx_gain=30, freq=CARRIER - TX_OFFSET):
+    """Write the cs8 to a unique /tmp file, transmit it, then delete it."""
+    fd, path = tempfile.mkstemp(prefix="selecard_tx_", suffix=".cs8", dir="/tmp")
+    os.close(fd)
+    try:
+        cs8.tofile(path)
+        cmd = ["hackrf_transfer", "-t", path, "-f", str(int(freq)),
+               "-s", str(int(FS)), "-a", "1", "-x", str(int(tx_gain))]
+        print("+ " + " ".join(cmd))
+        subprocess.run(cmd, check=True)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 # ---- CLI -------------------------------------------------------------------
@@ -348,18 +358,19 @@ def main():
             ap.error(f"the new card ID must be an integer, got {args.arg!r}")
         halfbits = reg_halfbits(args.id, new_id)
         cs8 = reg_synth(args.id, new_id)
-        out = args.out or "selecard_reg.cs8"
-        cs8.tofile(out)
-        print(f"synthesised REGISTER: enrol ID {new_id:08d} using card {args.id:08d} "
-              f"-> {out} ({len(cs8) // 2 / FS * 1000:.0f} ms) via {args.radio}")
+        label, default_out = (f"REGISTER: enrol ID {new_id:08d} using card {args.id:08d}",
+                              "selecard_reg.cs8")
     else:  # open / stop / close
         halfbits = command_halfbits(args.id, args.op, args.repeats)
         cs8 = synth(args.id, args.op, repeats=args.repeats)
-        out = args.out or "selecard_tx.cs8"
-        cs8.tofile(out)
-        print(f"synthesised {args.op.upper()} for ID {args.id:08d} -> {out} "
-              f"({len(cs8) // 2 / FS * 1000:.0f} ms, checksum {command_checksum(args.id, args.op)}) "
-              f"via {args.radio}")
+        label, default_out = (f"{args.op.upper()} for ID {args.id:08d} "
+                              f"(checksum {command_checksum(args.id, args.op)})",
+                              "selecard_tx.cs8")
+
+    if args.out or not args.tx:            # keep a file to inspect (dry run, or on request)
+        keep = args.out or default_out
+        cs8.tofile(keep)
+        print(f"synthesised {label} -> {keep} ({len(cs8) // 2 / FS * 1000:.0f} ms)")
 
     if args.tx:
         if args.radio == "yardstick":
@@ -367,7 +378,8 @@ def main():
             yardstick.send_2fsk([halfbits], FSK_CENTER, FSK_DEV, FSK_HALFBIT_US,
                                 index=args.yardstick_index)
         else:
-            transmit(cs8, args.tx_gain, freq=CARRIER - TX_OFFSET)
+            transmit(cs8, args.tx_gain, freq=CARRIER - TX_OFFSET)   # unique /tmp file, erased
+        print(f"transmitted {label} via {args.radio}")
 
 
 if __name__ == "__main__":
