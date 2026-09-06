@@ -79,6 +79,12 @@ def frame_bits(card_id, command, fc):
             + format(ck, "04b"))
 
 
+def frame_halfbits(card_id, command, fc):
+    """One frame as its on-air half-bit string (Manchester: bit 1 -> '10', 0 -> '01';
+    half-bit '1' = carrier ON). Used by the YARD Stick One OOK backend."""
+    return "".join("10" if b == "1" else "01" for b in frame_bits(card_id, command, fc))
+
+
 # ---- low-level DSP (OOK envelope) -----------------------------------------
 def find_offset(x, exclude_dc=20_000.0):
     """Locate the OOK carrier's offset (Hz) from the recording center — the strongest
@@ -234,6 +240,16 @@ def set_counter(card_id, val):
     open(os.path.join(STATE, str(card_id)), "w").write(str(val & 0xFFF))
 
 
+def _tx(card_id, command, counters, args):
+    """Transmit each counter's frame via the chosen radio backend."""
+    if args.radio == "yardstick":
+        import yardstick
+        yardstick.send_ook([frame_halfbits(card_id, command, fc) for fc in counters],
+                           CARRIER, HALFBIT_US, index=args.yardstick_index)
+    else:
+        transmit(build_cs8(card_id, command, counters), args.tx_gain)
+
+
 # ---- CLI -------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(
@@ -250,6 +266,10 @@ def main():
     ap.add_argument("--repeats", type=int, default=15, help="frames per press")
     ap.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
     ap.add_argument("--tx-gain", type=int, default=40, help="hackrf TX VGA gain, 0-47")
+    ap.add_argument("--radio", choices=["hackrf", "yardstick"], default="hackrf",
+                    help="transmit backend (yardstick = YARD Stick One via RfCat)")
+    ap.add_argument("--yardstick-index", type=int, default=0,
+                    help="which YARD Stick One (RfCat device index)")
     ap.add_argument("--out", metavar="FILE", help="output cs8 path")
     ap.add_argument("--carrier", type=float, help="decode: carrier Hz (with --center)")
     ap.add_argument("--center", type=float, help="decode: recording center Hz (with --carrier)")
@@ -273,29 +293,26 @@ def main():
 
     if args.op == "resync":
         counters = list(range(0, 4096))          # full forward sweep, crosses any window
-        cs8 = build_cs8(args.id, "open", counters)
-        out = args.out or "selecard2_tx.cs8"
-        cs8.tofile(out)
-        print(f"RESYNC id {args.id:08d}: OPEN sweep counter 0..4095 -> {out} "
+        print(f"RESYNC id {args.id:08d}: OPEN sweep counter 0..4095 via {args.radio} "
               f"(~{len(counters) * 0.116:.0f}s). The door opens as the counter passes the "
               f"receiver's stored value.")
         if args.tx:
-            transmit(cs8, args.tx_gain)
+            _tx(args.id, "open", counters, args)
             set_counter(args.id, 0)               # sweep ended at 4095; next press = +1
+        else:
+            build_cs8(args.id, "open", counters).tofile(args.out or "selecard2_tx.cs8")
         return
 
     start = args.counter if args.counter is not None else get_counter(args.id)
     counters = [(start + i) & 0xFFF for i in range(args.repeats)]
-    cs8 = build_cs8(args.id, args.op, counters)
-    out = args.out or "selecard2_tx.cs8"
-    cs8.tofile(out)
     print(f"{args.op.upper()} id {args.id:08d}: counters {start}..{counters[-1]} "
-          f"-> {out} ({args.repeats} frames, {len(cs8) // 2 / FS * 1000:.0f} ms)")
+          f"({args.repeats} frame(s)) via {args.radio}")
     if args.tx:
-        transmit(cs8, args.tx_gain)
+        _tx(args.id, args.op, counters, args)
         set_counter(args.id, (counters[-1] + 1) & 0xFFF)   # advance only after a real TX
         print("transmitted.")
     else:
+        build_cs8(args.id, args.op, counters).tofile(args.out or "selecard2_tx.cs8")
         print("(dry run — counter not advanced) add --tx to send")
 
 

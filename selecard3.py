@@ -42,6 +42,14 @@ HALFBIT_US = 830.0        # Manchester half-bit period
 # FSK tone offsets (Hz) relative to CARRIER, measured from a real transmission
 TONE_SPACE = 100.0        # logical 0 half-bit
 TONE_MARK = 4200.0        # logical 1 half-bit
+# The FSK tones sit only ~0.1-4.2 kHz above the carrier — right on the HackRF's DC
+# offset / LO leakage if transmitted at the carrier. So synthesise the signal
+# TX_OFFSET Hz up and transmit with LO = CARRIER - TX_OFFSET (as the II tool does).
+TX_OFFSET = 250_000.0
+# YARD Stick One 2-FSK: transmit at the tones' center with ±deviation = half the spacing.
+FSK_CENTER = CARRIER + (TONE_SPACE + TONE_MARK) / 2      # 426.075850 MHz
+FSK_DEV = (TONE_MARK - TONE_SPACE) / 2                   # 2050 Hz
+FSK_HALFBIT_US = HALFBIT_US                              # 830 us
 
 # Framing measured from a real transmission, as half-bit levels (generic — carries no
 # ID; only the data slots do). A press = preamble, then 3 data frames, each preceded by
@@ -243,7 +251,7 @@ def _modulate(halfbits, amp=90.0):
     sig = np.empty(len(halfbits) * tsamp, complex)
     ph, k = 0.0, 0
     for c in halfbits:
-        dph = 2 * np.pi * (TONE_MARK if c == "1" else TONE_SPACE) / FS
+        dph = 2 * np.pi * (TX_OFFSET + (TONE_MARK if c == "1" else TONE_SPACE)) / FS
         for _ in range(tsamp):
             sig[k] = amp * np.exp(1j * ph)
             ph += dph
@@ -256,7 +264,7 @@ def _modulate(halfbits, amp=90.0):
     return cs8
 
 
-def synth(idv, command, amp=90.0, repeats=3):
+def synth(idv, command, amp=120.0, repeats=3):
     """Synthesise the FSK/Manchester waveform for a command; return a cs8 int8 array."""
     return _modulate(command_halfbits(idv, command, repeats), amp)
 
@@ -275,7 +283,7 @@ def reg_synth(own_id, new_id, amp=90.0):
     return _modulate(reg_halfbits(own_id, new_id), amp)
 
 
-def transmit(cs8, tx_gain=30, freq=CARRIER, path="/tmp/selecard_tx.cs8"):
+def transmit(cs8, tx_gain=30, freq=CARRIER - TX_OFFSET, path="/tmp/selecard_tx.cs8"):
     """Transmit a synthesised cs8 clip with hackrf_transfer."""
     cs8.tofile(path)
     cmd = ["hackrf_transfer", "-t", path, "-f", str(int(freq)),
@@ -304,6 +312,10 @@ def main():
                          "an already-registered authoriser card for reg)")
     ap.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
     ap.add_argument("--tx-gain", type=int, default=30, help="hackrf TX VGA gain, 0-47")
+    ap.add_argument("--radio", choices=["hackrf", "yardstick"], default="hackrf",
+                    help="transmit backend (yardstick = YARD Stick One via RfCat)")
+    ap.add_argument("--yardstick-index", type=int, default=0,
+                    help="which YARD Stick One (RfCat device index)")
     ap.add_argument("--repeats", type=int, default=3,
                     help="data-frame repeats per press (a real remote sends 3)")
     ap.add_argument("--out", metavar="FILE", help="output cs8 path")
@@ -334,20 +346,28 @@ def main():
             new_id = int(args.arg)
         except ValueError:
             ap.error(f"the new card ID must be an integer, got {args.arg!r}")
+        halfbits = reg_halfbits(args.id, new_id)
         cs8 = reg_synth(args.id, new_id)
         out = args.out or "selecard_reg.cs8"
         cs8.tofile(out)
         print(f"synthesised REGISTER: enrol ID {new_id:08d} using card {args.id:08d} "
-              f"-> {out} ({len(cs8) // 2 / FS * 1000:.0f} ms)")
+              f"-> {out} ({len(cs8) // 2 / FS * 1000:.0f} ms) via {args.radio}")
     else:  # open / stop / close
+        halfbits = command_halfbits(args.id, args.op, args.repeats)
         cs8 = synth(args.id, args.op, repeats=args.repeats)
         out = args.out or "selecard_tx.cs8"
         cs8.tofile(out)
         print(f"synthesised {args.op.upper()} for ID {args.id:08d} -> {out} "
-              f"({len(cs8) // 2 / FS * 1000:.0f} ms, checksum {command_checksum(args.id, args.op)})")
+              f"({len(cs8) // 2 / FS * 1000:.0f} ms, checksum {command_checksum(args.id, args.op)}) "
+              f"via {args.radio}")
 
     if args.tx:
-        transmit(cs8, args.tx_gain, freq=CARRIER)
+        if args.radio == "yardstick":
+            import yardstick
+            yardstick.send_2fsk([halfbits], FSK_CENTER, FSK_DEV, FSK_HALFBIT_US,
+                                index=args.yardstick_index)
+        else:
+            transmit(cs8, args.tx_gain, freq=CARRIER - TX_OFFSET)
 
 
 if __name__ == "__main__":

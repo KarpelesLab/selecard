@@ -126,6 +126,28 @@ wraps all the way around** and re-enters the window — worst case about **11 mi
 continuous holding, less if it drifted further. The simple advice: **don't press the card
 when it's out of range of its shutter.**
 
+### Transmitting with a YARD Stick One (instead of a HackRF)
+
+Both SeleCards are narrowband — OOK (II) and 2-FSK (III) — so a
+[YARD Stick One](https://greatscottgadgets.com/yardstickone/) (a small CC1111-based
+sub-GHz transceiver) can transmit them **natively**, with no IQ synthesis. It covers both
+bands (315 and 426 MHz), emits a clean ~+10 dBm carrier, and suits a fixed install. Add
+`--radio yardstick`:
+
+```console
+$ pip install rfcat        # provides the rflib module
+$ python3 selecard2.py --id 1234567 open --tx --radio yardstick
+$ python3 selecard3.py --id 1234567 open --tx --radio yardstick
+```
+
+With more than one stick (e.g. one per band/location), select it with `--yardstick-index N`.
+The decode / checksum / counter logic is unchanged — only the transmit backend differs
+([`yardstick.py`](yardstick.py)).
+
+> **Not yet hardware-tested.** The backend is written from the CC1111/RfCat interface and
+> our measured parameters; two things to confirm on first use (each a one-line fix, noted in
+> `yardstick.py`): the 2-FSK tone polarity, and that no stray hardware preamble is prepended.
+
 ### How it was worked out
 
 Both signals were captured with a HackRF at 2 MS/s and demodulated in software; the card
@@ -259,6 +281,28 @@ $ python3 selecard2.py --id 1234567 resync --tx      # カウンタを 0..4095 �
 実物のカードは**電波範囲内に戻し、カウンタが一周して範囲に再び入るまでボタンを押し続ける**
 ことで復旧できます。最悪の場合、**約11分**の連続押しが必要です（ずれが大きいほど短く
 なります）。要するに、**シャッターの電波範囲外ではカードを押さないこと**です。
+
+### YARD Stick One で送信する（HackRF の代わりに）
+
+セレカードはどちらも狭帯域（II は OOK、III は 2-FSK）なので、
+[YARD Stick One](https://greatscottgadgets.com/yardstickone/)（CC1111 ベースの小型
+サブ GHz トランシーバ）で、IQ 合成なしに**そのまま送信**できます。両方の帯域
+（315・426 MHz）をカバーし、クリーンな約 +10 dBm の搬送波を出力するため、固定設置に
+向いています。`--radio yardstick` を付けます：
+
+```console
+$ pip install rfcat        # rflib モジュールを提供します
+$ python3 selecard2.py --id 1234567 open --tx --radio yardstick
+$ python3 selecard3.py --id 1234567 open --tx --radio yardstick
+```
+
+複数のスティックがある場合（帯域／場所ごとに1本など）は `--yardstick-index N` で選びます。
+デコード／チェックサム／カウンタのロジックは同じで、送信バックエンドだけが変わります
+（[`yardstick.py`](yardstick.py)）。
+
+> **未実機検証。** このバックエンドは CC1111/RfCat のインターフェースと実測パラメータから
+> 記述したもので、初回に確認すべき点が2つあります（それぞれ一行で修正可能、`yardstick.py`
+> に記載）：2-FSK のトーン極性と、余分なハードウェアプリアンブルが付かないこと。
 
 ### 解析方法について
 
