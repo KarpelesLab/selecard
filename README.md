@@ -38,9 +38,22 @@ people understand that these remotes are **not secure**.
 
 ### ⚠️ Safety and legality
 
-Only transmit to a shutter **you own, or are clearly authorised to test**. Radio
-transmission on these bands is regulated and may require a licence where you live — follow
-your local rules. The authors accept no liability (see [`LICENSE`](LICENSE)).
+Only transmit to a shutter **you own, or are clearly authorised to test**.
+
+**In Japan**, reproducing these signals is generally legal without a licence **as long as
+your transmitter stays within the "extremely low power" (微弱無線) limits of the Radio Act** —
+the same exemption the original ≤ 1 mW remotes rely on. Compliance is defined by the
+radiated field strength **measured at about 3 metres from the transmitter**, which must stay
+below the legal limit for the band. A general-purpose SDR such as a HackRF can easily exceed
+that, so keep its output low and, to be sure, verify by measuring at ~3 m. This is expected
+to be the usual way people make use of this project.
+
+Outside Japan, transmission on these bands may require a licence — follow your local rules.
+
+> **This is not legal advice, and the law may have changed since this was published. You are
+> responsible for verifying the current requirements in your jurisdiction.**
+
+The authors accept no liability (see [`LICENSE`](LICENSE)).
 
 ### Which model do I have?
 
@@ -160,9 +173,22 @@ MIT © Karpeles Lab Inc — see [`LICENSE`](LICENSE).
 
 ### ⚠️ 安全と法律について
 
-送信して良いのは、**自分が所有する、または明確に許可されたシャッターのみ**です。これらの
-周波数帯での電波送信は法律で規制されており、国によっては免許が必要です。お住まいの地域の
-規則に従ってください。作者は一切の責任を負いません（[`LICENSE`](LICENSE) を参照）。
+送信して良いのは、**自分が所有する、または明確に許可されたシャッターのみ**です。
+
+**日本国内**では、これらの信号の再現は、送信機が電波法の**微弱無線**の基準内に収まって
+いる限り、原則として免許不要で合法です（元の ≤ 1 mW リモコンが依拠しているのと同じ免除
+規定です）。適合の判断は、**送信機からおよそ3メートルの距離で測定した**電界強度が、その
+周波数帯の法定上限を下回っていることによります。HackRF のような汎用 SDR はこの上限を
+容易に超え得るため、出力を十分に低く保ち、確実を期すには約3メートルで測定して確認して
+ください。本プロジェクトは、これが一般的な利用方法になると想定しています。
+
+日本国外では、これらの帯域での送信に免許が必要な場合があります。お住まいの地域の規則に
+従ってください。
+
+> **これは法的助言ではなく、公開後に法令が変わっている可能性があります。現行の要件は
+> ご自身の管轄区域で確認する責任があります。**
+
+作者は一切の責任を負いません（[`LICENSE`](LICENSE) を参照）。
 
 ### どちらのモデルですか？
 
