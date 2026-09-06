@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-selecard.py — Bunka Shutter SeleCard III (STX0031) 426 MHz remote: decode & transmit.
+selecard3.py — Bunka Shutter SeleCard III (STX0031) 426 MHz remote: decode & transmit.
 
 Reverse-engineered, manufacturer-independent tool for the SeleCard III wireless
 garage-shutter remote. It can:
@@ -12,11 +12,11 @@ garage-shutter remote. It can:
                           the shutter, authorised by already-registered card N.
 
 `--id` is global and always names the card you operate as. Examples:
-    python3 selecard.py --id 1234567 open --tx
-    python3 selecard.py --id 1234567 reg 7654321 --tx
-    python3 selecard.py decode recording.cs8
+    python3 selecard3.py --id 1234567 open --tx
+    python3 selecard3.py --id 1234567 reg 7654321 --tx
+    python3 selecard3.py decode recording.cs8
 
-Radio summary (see PROTOCOL.md for the full analysis):
+Radio summary (see PROTOCOL3.md for the full analysis):
   * carrier ~426.0737 MHz, 2-FSK, ~4 kHz shift, ~602 bit/s Manchester
   * frame  = preamble + delimiter + 50 data bits, repeated ~3x per press
   * data   = [000][24-bit ID, LSB-first][8-bit one-hot command][15-bit checksum]
@@ -74,7 +74,7 @@ def command_checksum(idv, command):
 
 
 # Registration (enrolment) commit-packet checksum: [own][check(own)][new][check(new)].
-# Same fold, different seeds. See PROTOCOL.md.
+# Same fold, different seeds. See PROTOCOL3.md.
 REG_SEED_OWN = 0x800080   # checksum of the already-registered card's own ID
 REG_SEED_NEW = 0xFF00FF   # checksum of the ID being enrolled
 
@@ -292,9 +292,9 @@ def main():
         description="SeleCard III: decode / operate / enrol",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="examples:\n"
-               "  selecard.py --id 1234567 open --tx\n"
-               "  selecard.py --id 1234567 reg 7654321 --tx\n"
-               "  selecard.py decode recording.cs8")
+               "  selecard3.py --id 1234567 open --tx\n"
+               "  selecard3.py --id 1234567 reg 7654321 --tx\n"
+               "  selecard3.py decode recording.cs8")
     ap.add_argument("op", choices=["open", "stop", "close", "reg", "decode"],
                     help="operation to perform")
     ap.add_argument("arg", nargs="?",

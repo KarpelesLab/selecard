@@ -3,7 +3,7 @@
 selecard2.py — Bunka Shutter SeleCard II (STX9531C) ~315 MHz remote: decode & transmit.
 
 Reverse-engineered, manufacturer-independent tool for the *earlier* SeleCard II
-wireless garage-shutter remote (the 426 MHz SeleCard III is handled by selecard.py).
+wireless garage-shutter remote (the 426 MHz SeleCard III is handled by selecard3.py).
 It can:
 
   * decode                 — demodulate a HackRF `cs8` recording and print the frames

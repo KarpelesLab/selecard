@@ -2,7 +2,7 @@
 
 Independent over-the-air analysis of the Bunka Shutter **SeleCard II** garage-shutter
 remote — the earlier, ~315 MHz generation (the 426 MHz SeleCard III is in
-[`PROTOCOL.md`](PROTOCOL.md)). Every example uses the synthetic ID **`01234567`**; no real
+[`PROTOCOL3.md`](PROTOCOL3.md)). Every example uses the synthetic ID **`01234567`**; no real
 device ID appears in this repository.
 
 Conventions: bit strings are written **as transmitted, first bit on the left**. Unlike the

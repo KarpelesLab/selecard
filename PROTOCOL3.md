@@ -83,7 +83,7 @@ computed from the printed ID alone.
 ## 3. Fixed-code / replay
 
 There is **no rolling counter**: the same button always transmits the same frame. Frames
-are therefore fully replayable, and synthesisable from the ID. `selecard.py send …`
+are therefore fully replayable, and synthesisable from the ID. `selecard3.py send …`
 builds a frame from scratch and (with `--tx`) transmits it.
 
 ## 4. Registration (over-the-air enrolment)

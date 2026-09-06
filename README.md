@@ -4,7 +4,7 @@ Reverse engineering of the **Bunka Shutter (文化シヤッター) SeleCard** ga
 remotes, with small Python tools to decode recordings and synthesise / transmit
 OPEN · STOP · CLOSE commands. Both generations are covered:
 
-* **SeleCard III** (`STX0031`, ~426 MHz, 2-FSK) — [`selecard.py`](selecard.py), [`PROTOCOL.md`](PROTOCOL.md)
+* **SeleCard III** (`STX0031`, ~426 MHz, 2-FSK) — [`selecard3.py`](selecard3.py), [`PROTOCOL3.md`](PROTOCOL3.md)
 * **SeleCard II** (`STX9531C`, ~315 MHz, OOK) — [`selecard2.py`](selecard2.py), [`PROTOCOL2.md`](PROTOCOL2.md)
 
 These are discontinued consumer products. This is an independent, clean-room analysis from
@@ -13,7 +13,7 @@ over-the-air observation, published for interoperability and security research.
 > **No real device IDs appear anywhere in this repository.** Every example uses the
 > obviously-synthetic ID `01234567`.
 
-## What was found
+## SeleCard III (426 MHz)
 
 | | |
 |---|---|
@@ -32,23 +32,24 @@ checksum is a simple folded additive checksum, not a cryptographic MAC).
 
 ## Security note
 
-This documents an **insecure-by-design** fixed-code remote: anyone who can observe or
-guess the printed ID can command the shutter. It is published so owners and installers
-understand that risk on equipment that is long out of support. **Only transmit to
-receivers you own or are explicitly authorised to test.** RF transmission is regulated;
+Both models are **insecure by design**: anyone who can observe or guess the printed ID can
+command the shutter. The III is fixed-code (frames replay directly); the II adds only a
+weak forward counter that a synthesise-and-sweep defeats. This is published so owners and
+installers understand that risk on equipment that is long out of support. **Only transmit
+to receivers you own or are explicitly authorised to test.** RF transmission is regulated;
 comply with the rules of your jurisdiction. The authors accept no liability (see
 [`LICENSE`](LICENSE)).
 
-## Usage
+### Usage — `selecard3.py`
 
 Requires Python 3 with `numpy`, and the [HackRF](https://github.com/greatscottgadgets/hackrf)
-CLI tools for capture / transmit.
+CLI tools for capture / transmit (both tools share these requirements).
 
 **Decode a recording** (capture with e.g.
 `hackrf_transfer -r rec.cs8 -f 425900000 -s 2000000 -l 24 -g 20` while a button is held):
 
 ```console
-$ python3 selecard.py decode rec.cs8
+$ python3 selecard3.py decode rec.cs8
 ID 01234567  OPEN   checksum OK
 ID 01234567  STOP   checksum OK
 ```
@@ -57,10 +58,10 @@ ID 01234567  STOP   checksum OK
 it; leading zeros optional). Writes a `cs8` clip; add `--tx` to transmit it:
 
 ```console
-$ python3 selecard.py --id 1234567 open
+$ python3 selecard3.py --id 1234567 open
 synthesised OPEN for ID 01234567 -> selecard_tx.cs8 (518 ms, checksum 100110010111101)
 
-$ python3 selecard.py --id 1234567 open --tx --tx-gain 40
+$ python3 selecard3.py --id 1234567 open --tx --tx-gain 40
 ```
 
 `open`, `stop`, and `close` all work the same way.
@@ -69,10 +70,10 @@ $ python3 selecard.py --id 1234567 open --tx --tx-gain 40
 to that shutter (the authoriser); the positional argument is the new ID to add:
 
 ```console
-$ python3 selecard.py --id 1234567 reg 7654321
+$ python3 selecard3.py --id 1234567 reg 7654321
 synthesised REGISTER: enrol ID 07654321 using card 01234567 -> selecard_reg.cs8 (839 ms)
 
-$ python3 selecard.py --id 1234567 reg 7654321 --tx --tx-gain 40
+$ python3 selecard3.py --id 1234567 reg 7654321 --tx --tx-gain 40
 ```
 
 This exists because the enrolment check is, again, just an additive checksum of the two
