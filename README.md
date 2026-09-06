@@ -1,12 +1,14 @@
 # SeleCard
 
-Reverse engineering of the **Bunka Shutter (文化シヤッター) SeleCard III** garage-shutter
-remote — a `426 MHz` wireless card remote (model **STX0031**) — with a small Python tool
-to decode recordings and synthesise / transmit OPEN · STOP · CLOSE commands.
+Reverse engineering of the **Bunka Shutter (文化シヤッター) SeleCard** garage-shutter card
+remotes, with small Python tools to decode recordings and synthesise / transmit
+OPEN · STOP · CLOSE commands. Both generations are covered:
 
-The SeleCard III is a discontinued consumer product. This is an independent, clean-room
-analysis from over-the-air observation, published for interoperability and security
-research. See [`PROTOCOL.md`](PROTOCOL.md) for the full write-up.
+* **SeleCard III** (`STX0031`, ~426 MHz, 2-FSK) — [`selecard.py`](selecard.py), [`PROTOCOL.md`](PROTOCOL.md)
+* **SeleCard II** (`STX9531C`, ~315 MHz, OOK) — [`selecard2.py`](selecard2.py), [`PROTOCOL2.md`](PROTOCOL2.md)
+
+These are discontinued consumer products. This is an independent, clean-room analysis from
+over-the-air observation, published for interoperability and security research.
 
 > **No real device IDs appear anywhere in this repository.** Every example uses the
 > obviously-synthetic ID `01234567`.
@@ -78,13 +80,45 @@ IDs — there is no cryptographic protection. It is the clearest demonstration o
 system's weakness, and is provided for that reason. **Only enrol cards onto receivers
 you own or are authorised to modify.**
 
+## SeleCard II (315 MHz) — `selecard2.py`
+
+The earlier II generation is OOK, MSB-first, and — unlike the fixed-code III — carries a
+**12-bit forward counter**: the receiver only accepts a counter *ahead* of the last one it
+saw (within a window measured at 255). So `selecard2.py` tracks a forward counter per ID
+(in `~/.selecard2/`) and advances it only on a real transmission. See [`PROTOCOL2.md`](PROTOCOL2.md).
+
+**Decode** (capture with e.g.
+`hackrf_transfer -r rec.cs8 -f 314800000 -s 2000000 -l 24 -g 20` while a button is held):
+
+```console
+$ python3 selecard2.py decode rec.cs8
+ID 01234567  OPEN   counter  842  checksum OK
+```
+
+**Operate** — `--id` is the printed card number. Writes a `cs8`; add `--tx` to transmit:
+
+```console
+$ python3 selecard2.py --id 1234567 open --tx
+$ python3 selecard2.py --id 1234567 close --tx
+```
+
+If presses stop being accepted (the tracked counter fell behind the receiver), re-enter
+the window once with a full sweep:
+
+```console
+$ python3 selecard2.py --id 1234567 resync --tx     # sweeps counter 0..4095
+```
+
+The forward window (255 of 4096) is weak: it stops naive stale-frame replay, but a
+synthesise-and-sweep — exactly what `resync` does — defeats it, so the II is, in practice,
+no harder to operate than the fixed-code III once you have the printed ID.
+
 ## Status
 
 * **SeleCard III (STX0031, 426 MHz FSK)** — fully decoded; commands validated by
   operating a real shutter with synthesised frames.
-* **SeleCard II (STX9531C, ~315 MHz)** — earlier generation, **not yet covered**. It is
-  OOK on a keyed ~315 MHz crystal driven by an NEC µPD6124A encoder (NEC-family PWM),
-  so it needs its own capture; the ID appears to use the same printed-decimal format.
+* **SeleCard II (STX9531C, ~315 MHz OOK)** — fully decoded; general checksum confirmed on
+  multiple cards and the forward counter beaten, validated by operating a real shutter.
 
 ## License
 
