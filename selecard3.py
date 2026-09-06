@@ -229,12 +229,12 @@ def _frame_bits(idv, command):
             + command_checksum(idv, command))
 
 
-def command_halfbits(idv, command):
-    """Full half-bit sequence of a command transmission (framing + 3 data frames),
-    reproducing a real press bit-for-bit. Manchester: data bit 1 -> '10', 0 -> '01'."""
+def command_halfbits(idv, command, repeats=3):
+    """Full half-bit sequence of a command transmission (framing + `repeats` data
+    frames; a real press sends 3). Manchester: data bit 1 -> '10', 0 -> '01'."""
     data = _frame_bits(idv, command)
     manch = "".join("10" if b == "1" else "01" for b in data)  # 100 half-bits
-    return (_PREAMBLE0 + manch + _INTERFRAME + manch + _INTERFRAME + manch + _TAIL)
+    return _PREAMBLE0 + _INTERFRAME.join([manch] * max(1, repeats)) + _TAIL
 
 
 def _modulate(halfbits, amp=90.0):
@@ -256,9 +256,9 @@ def _modulate(halfbits, amp=90.0):
     return cs8
 
 
-def synth(idv, command, amp=90.0):
+def synth(idv, command, amp=90.0, repeats=3):
     """Synthesise the FSK/Manchester waveform for a command; return a cs8 int8 array."""
-    return _modulate(command_halfbits(idv, command), amp)
+    return _modulate(command_halfbits(idv, command, repeats), amp)
 
 
 def reg_halfbits(own_id, new_id):
@@ -304,6 +304,8 @@ def main():
                          "an already-registered authoriser card for reg)")
     ap.add_argument("--tx", action="store_true", help="transmit with hackrf_transfer")
     ap.add_argument("--tx-gain", type=int, default=30, help="hackrf TX VGA gain, 0-47")
+    ap.add_argument("--repeats", type=int, default=3,
+                    help="data-frame repeats per press (a real remote sends 3)")
     ap.add_argument("--out", metavar="FILE", help="output cs8 path")
     ap.add_argument("--carrier", type=float, help="decode: carrier Hz (with --center)")
     ap.add_argument("--center", type=float, help="decode: recording center Hz (with --carrier)")
@@ -338,7 +340,7 @@ def main():
         print(f"synthesised REGISTER: enrol ID {new_id:08d} using card {args.id:08d} "
               f"-> {out} ({len(cs8) // 2 / FS * 1000:.0f} ms)")
     else:  # open / stop / close
-        cs8 = synth(args.id, args.op)
+        cs8 = synth(args.id, args.op, repeats=args.repeats)
         out = args.out or "selecard_tx.cs8"
         cs8.tofile(out)
         print(f"synthesised {args.op.upper()} for ID {args.id:08d} -> {out} "
