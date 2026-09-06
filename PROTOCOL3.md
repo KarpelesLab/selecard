@@ -1,5 +1,7 @@
 # SeleCard III (STX0031) — RF protocol
 
+*English · [日本語](PROTOCOL3_ja.md)*
+
 Independent over-the-air analysis of the Bunka Shutter SeleCard III garage-shutter
 remote. Every example below uses the synthetic ID **`01234567`**; no real device ID
 appears in this repository.

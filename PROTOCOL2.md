@@ -1,5 +1,7 @@
 # SeleCard II (STX9531C) — RF protocol
 
+*English · [日本語](PROTOCOL2_ja.md)*
+
 Independent over-the-air analysis of the Bunka Shutter **SeleCard II** garage-shutter
 remote — the earlier, ~315 MHz generation (the 426 MHz SeleCard III is in
 [`PROTOCOL3.md`](PROTOCOL3.md)). Every example uses the synthetic ID **`01234567`**; no real
@@ -102,6 +104,18 @@ attacker who can synthesise: sweeping the counter upward (0 → 4095) is guarant
 the window, and once inside, keeping the counter at `last_seen + 1` stays valid across the
 counter's periodic wraparound. `selecard2.py` does exactly this: `resync` sweeps to enter
 the window, then normal presses track `last_seen + 1`.
+
+**Counter advance rate & real-card desync.** A held button repeats the frame about every
+**169 ms**, so the counter advances **~5.9 counts per second** of holding. This matters for
+a *real* card: if you press it repeatedly or hold it while **out of radio range** of the
+receiver, the card's counter runs ahead but the receiver's `last_seen` does not — and if it
+gets more than `W = 255` ahead, the card falls outside the window and stops working. Because
+the check is modulo-4096, the fix is to bring the card back **in range and hold the button
+until the counter wraps all the way around** and re-enters the window from below: worst case
+that is nearly a full wrap, **~11 minutes** of continuous holding (a card that drifted just
+past the window), down to seconds (a card that drifted almost all the way around). The
+practical advice: don't operate it out of range. (`selecard2.py resync` is the synthetic
+equivalent — it sweeps the whole range in one go.)
 
 ## 4. Method (brief)
 
