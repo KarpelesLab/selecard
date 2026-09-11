@@ -19,15 +19,23 @@ USB. RfCat addresses multiple sticks by index, so a multi-radio install can driv
 band per stick (e.g. index 0 @ 315, index 1 @ 426).
 
 ------------------------------------------------------------------------------------
-STATUS: written from the CC1111/RfCat interface and our measured parameters, but NOT
-yet verified on hardware. Two things to check on first use (each a one-line fix):
+STATUS: brought up on a YARD Stick One (rfcat 2.0.1 / rflib) — the transmit path runs
+cleanly for both OOK and 2-FSK. Note `d.cleanup()` after every transmit is required:
+without it the daemon EP5 threads tear down mid-USB-read and the process dies with a
+SIGBUS/segfault (harmless-looking but it corrupts the exit). RF *decode* is still
+unconfirmed without a receiver to capture the stick's output. Two things to check on
+first use (each a one-line fix):
 
   (1) 2-FSK tone polarity — if OPEN/STOP/CLOSE come out swapped or the frame won't
       decode, the CC1111's '1'->+deviation convention is inverted vs ours: either
-      pass a negative deviation, or invert the half-bit string. `send_2fsk(..., invert=True)`.
+      pass a negative deviation, or `send_2fsk(..., invert=True)`.
   (2) Stray preamble/sync — we set sync mode 0 so the CC1111 sends the frame raw
       (our framing already contains its own preamble). If a receiver won't lock,
-      capture the stick's own output on the HackRF and compare to a real frame.
+      capture the stick's own output on a HackRF/SDR and compare to a real frame.
+
+If a killed/crashed process leaves the stick unresponsive (USBTimeoutError loop),
+re-enumerate it once: `python3 -c "import usb.core as u; u.find(idVendor=0x1d50,
+idProduct=0x605b).reset()"`.
 ------------------------------------------------------------------------------------
 """
 
@@ -67,7 +75,11 @@ def send_ook(frames, freq_hz, halfbit_us, index=0):
         for hb in frames:
             d.RFxmit(bits_to_bytes(hb))
     finally:
-        d.setModeIDLE()
+        try:
+            d.setModeIDLE()
+        except Exception:
+            pass
+        d.cleanup()          # clean thread/USB shutdown — avoids a daemon-thread SIGBUS at exit
 
 
 def send_2fsk(frames, center_hz, deviation_hz, halfbit_us, index=0, invert=False):
@@ -90,4 +102,8 @@ def send_2fsk(frames, center_hz, deviation_hz, halfbit_us, index=0, invert=False
         for hb in frames:
             d.RFxmit(bits_to_bytes(hb.translate(tr) if invert else hb))
     finally:
-        d.setModeIDLE()
+        try:
+            d.setModeIDLE()
+        except Exception:
+            pass
+        d.cleanup()          # clean thread/USB shutdown — avoids a daemon-thread SIGBUS at exit
